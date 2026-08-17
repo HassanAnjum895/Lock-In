@@ -1,0 +1,12 @@
+node_modules
+dist
+*.local
+.DS_Store
+npm-debug.log*
+convex/_generated/
+.vercel
+.agents/
+.claude/
+AGENTS.md
+CLAUDE.md
+skills-lock.json

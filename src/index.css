@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Core surfaces */
+  --color-surface: #18181b; /* page background */
+  --color-card: #1e1e23; /* bento card */
+  --color-card-hi: #24242b; /* raised card / hover */
+  --color-line: rgba(255, 255, 255, 0.08); /* subtle borders */
+  --color-line-strong: rgba(255, 255, 255, 0.14);
+
+  /* Priority accents */
+  --color-critical: #fb7185; /* rose-400 */
+  --color-important: #fbbf24; /* amber-400 */
+  --color-canwait: #38bdf8; /* sky-400 */
+
+  --shadow-card: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-surface text-zinc-100 font-sans antialiased;
+    background-image:
+      radial-gradient(
+        60rem 40rem at 85% -10%,
+        rgba(99, 102, 241, 0.1),
+        transparent 60%
+      ),
+      radial-gradient(
+        50rem 35rem at -10% 110%,
+        rgba(244, 114, 182, 0.06),
+        transparent 60%
+      );
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    background: rgba(99, 102, 241, 0.4);
+  }
+
+  /* Slim, dark scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Shared bento card shell */
+  .bento-card {
+    @apply relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-card shadow-card;
+  }
+
+  /* Pressable tile / button feedback */
+  .press {
+    @apply transition-all duration-200 ease-out active:scale-[0.98] disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  /* Uppercase micro-label used across blocks */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500;
+  }
+
+  /* Inline input styling shared across blocks */
+  .field {
+    @apply w-full rounded-lg border border-line bg-black/25 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 transition-colors duration-200 ease-out focus:border-indigo-400/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/25;
+  }
+}
