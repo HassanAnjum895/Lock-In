@@ -8,6 +8,36 @@ export const PRIORITY_LEVELS = {
   3: { label: "Can Wait", color: "canwait", ring: "sky" },
 };
 
+/** Map a triage priority level back to a calendar due type (for tasks with a due date). */
+export const LEVEL_TO_DUE_TYPE = { 1: "exam", 2: "deadline", 3: "homework" };
+
+export const DUE_TYPES = {
+  exam: {
+    label: "Exam",
+    emoji: "📝",
+    level: 1, // triage priority when sent to the to-do list
+    dot: "bg-rose-400",
+    chip: "bg-rose-500/15 text-rose-300",
+    pill: "bg-rose-500/15 text-rose-300 border-rose-400/25",
+  },
+  deadline: {
+    label: "Deadline",
+    emoji: "⏰",
+    level: 2,
+    dot: "bg-amber-400",
+    chip: "bg-amber-500/15 text-amber-300",
+    pill: "bg-amber-500/15 text-amber-300 border-amber-400/25",
+  },
+  homework: {
+    label: "Homework",
+    emoji: "📚",
+    level: 3,
+    dot: "bg-sky-400",
+    chip: "bg-sky-500/15 text-sky-300",
+    pill: "bg-sky-500/15 text-sky-300 border-sky-400/25",
+  },
+};
+
 export const PRESETS = {
   hp: { label: "Deep Focus", minutes: 55, emoji: "⚡" },
   pomodoro: { label: "Pomodoro", minutes: 25, emoji: "🍅" },
@@ -85,6 +115,7 @@ const isPristineState = (s) =>
   s.tasks.length === 0 &&
   s.savings === 0 &&
   s.techProjects.length === 0 &&
+  s.dueItems.length === 0 &&
   s.timer.secondsLeft === PRESETS.hp.minutes * 60 &&
   s.timer.total === PRESETS.hp.minutes * 60 &&
   DAYS.every((d) => isDefaultDay(s.schedule[d]));
@@ -117,6 +148,7 @@ export function AppProvider({ children }) {
     "student-os.projects",
     []
   );
+  const [dueItems, setDueItems] = usePersistedState("student-os.due", []);
 
   // ---- Legacy schedule migration ----------------------------------------
   useEffect(() => {
@@ -142,6 +174,7 @@ export function AppProvider({ children }) {
       timer,
       savings,
       techProjects,
+      dueItems,
     });
   }
 
@@ -160,6 +193,7 @@ export function AppProvider({ children }) {
       if (d.timer && typeof d.timer === "object") setTimer(d.timer);
       if (typeof d.savings === "number") setSavings(d.savings);
       if (Array.isArray(d.techProjects)) setTechProjects(d.techProjects);
+      if (Array.isArray(d.dueItems)) setDueItems(d.dueItems);
       pristineRef.current = false;
       restoreRequestedRef.current = false;
       hydratedFromRemoteRef.current = true;
@@ -184,6 +218,7 @@ export function AppProvider({ children }) {
       timer,
       savings,
       techProjects,
+      dueItems,
     };
     const t = setTimeout(() => sync.save(data), 600);
     return () => clearTimeout(t);
@@ -197,17 +232,30 @@ export function AppProvider({ children }) {
     timer,
     savings,
     techProjects,
+    dueItems,
   ]);
 
   // ---- Triage actions -------------------------------------------------
-  const addTask = (title, level) => {
+  const addTask = (title, level, due = null) => {
     const trimmed = title.trim();
     if (!trimmed) return;
     setTasks((prev) => [
-      { id: uid(), title: trimmed, level, done: false, doneAt: null },
+      {
+        id: uid(),
+        title: trimmed,
+        level,
+        done: false,
+        doneAt: null,
+        due: due || null, // YYYY-MM-DD — shows on the Due calendar
+      },
       ...prev,
     ]);
   };
+
+  const setTaskDue = (id, due) =>
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, due: due || null } : t))
+    );
 
   const toggleTask = (id) =>
     setTasks((prev) =>
@@ -261,6 +309,57 @@ export function AppProvider({ children }) {
     );
 
   const clearSchedule = () => setSchedule(defaultSchedule());
+
+  // ---- Due calendar actions --------------------------------------------
+  const addDueItem = ({ title, subject = "", type, date }) => {
+    const trimmed = title.trim();
+    if (!trimmed || !date) return;
+    setDueItems((prev) => [
+      {
+        id: uid(),
+        title: trimmed,
+        subject: subject.trim(),
+        type,
+        date, // YYYY-MM-DD
+        done: false,
+        taskId: null, // triage task this item was sent to
+      },
+      ...prev,
+    ]);
+  };
+
+  const deleteDueItem = (id) =>
+    setDueItems((prev) => prev.filter((i) => i.id !== id));
+
+  const toggleDueItem = (id) =>
+    setDueItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, done: !i.done } : i))
+    );
+
+  /** Push a due item into the triage to-do list (priority from its type) and record the link. */
+  const sendDueToTriage = (id) => {
+    const item = dueItems.find((i) => i.id === id);
+    if (!item) return;
+    const alreadyLinked =
+      item.taskId && tasks.some((t) => t.id === item.taskId);
+    if (alreadyLinked) return;
+    const taskId = uid();
+    const level = (DUE_TYPES[item.type] || DUE_TYPES.homework).level;
+    setTasks((prev) => [
+      {
+        id: taskId,
+        title: item.title,
+        level,
+        done: false,
+        doneAt: null,
+        due: item.date, // keep the date even if the calendar item is deleted later
+      },
+      ...prev,
+    ]);
+    setDueItems((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, taskId } : i))
+    );
+  };
 
   // ---- Side projects actions ------------------------------------------
   const addProject = (title) => {
@@ -336,6 +435,7 @@ export function AppProvider({ children }) {
       toggleTask,
       cycleLevel,
       deleteTask,
+      setTaskDue,
       clearCompleted,
       // timer
       timer,
@@ -343,6 +443,12 @@ export function AppProvider({ children }) {
       setCustomTimer,
       resetTimer,
       tickTimer,
+      // due calendar
+      dueItems,
+      addDueItem,
+      deleteDueItem,
+      toggleDueItem,
+      sendDueToTriage,
       // side projects
       savings,
       setSavings,
@@ -366,6 +472,7 @@ export function AppProvider({ children }) {
       timer,
       savings,
       techProjects,
+      dueItems,
       sync.enabled,
       sync.status,
       sync.syncId,

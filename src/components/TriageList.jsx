@@ -42,11 +42,13 @@ function AddTaskForm() {
   const { addTask } = useApp();
   const [title, setTitle] = useState("");
   const [level, setLevel] = useState(2);
+  const [due, setDue] = useState("");
 
   const submit = (e) => {
     e.preventDefault();
-    addTask(title, level);
+    addTask(title, level, due || null);
     setTitle("");
+    setDue("");
   };
 
   return (
@@ -81,6 +83,14 @@ function AddTaskForm() {
           </button>
         ))}
       </div>
+      <input
+        type="date"
+        value={due}
+        onChange={(e) => setDue(e.target.value)}
+        aria-label="Due date (optional)"
+        title="Optional due date — appears on the Due calendar"
+        className="field w-40 shrink-0"
+      />
       <button
         type="submit"
         className="press cursor-pointer rounded-lg bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_0_20px_-6px_rgba(99,102,241,0.7)] hover:bg-indigo-400"
@@ -92,7 +102,7 @@ function AddTaskForm() {
 }
 
 function TaskRow({ task }) {
-  const { toggleTask, cycleLevel, deleteTask } = useApp();
+  const { toggleTask, cycleLevel, deleteTask, setTaskDue } = useApp();
   const s = LEVEL_STYLES[task.level];
 
   return (
@@ -146,6 +156,16 @@ function TaskRow({ task }) {
       >
         {task.title}
       </span>
+
+      {/* Due date — shows on the Due calendar */}
+      <input
+        type="date"
+        value={task.due || ""}
+        onChange={(e) => setTaskDue(task.id, e.target.value || null)}
+        aria-label={`Due date for ${task.title}`}
+        title="Due date — appears on the Due calendar"
+        className="w-28 shrink-0 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-center text-[10px] font-semibold text-zinc-400 transition-colors duration-200 hover:border-line focus:border-indigo-400/60 focus:bg-black/30 focus:outline-none"
+      />
 
       {/* Level chip — click to cycle priority */}
       <button

@@ -5,6 +5,7 @@ import { ThemeHeader } from "./components/ThemeHeader";
 import { NavBar } from "./components/NavBar";
 import { Overview } from "./components/Overview";
 import { AcademicSchedule } from "./components/AcademicSchedule";
+import { DueCalendar } from "./components/DueCalendar";
 import { TriageList } from "./components/TriageList";
 import { FocusTimer } from "./components/FocusTimer";
 import { SideProjects } from "./components/SideProjects";
@@ -82,6 +83,11 @@ export default function App() {
             {activeView === "schedule" && (
               <div className="mx-auto max-w-3xl">
                 <AcademicSchedule />
+              </div>
+            )}
+            {activeView === "due" && (
+              <div className="mx-auto max-w-4xl">
+                <DueCalendar onNavigate={setActiveView} />
               </div>
             )}
             {activeView === "triage" && (

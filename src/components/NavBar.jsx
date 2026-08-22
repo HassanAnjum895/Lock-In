@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 export const NAV_ITEMS = [
   { key: "overview", label: "Overview", emoji: "📊" },
   { key: "schedule", label: "Schedule", emoji: "📅" },
+  { key: "due", label: "Due", emoji: "📆" },
   { key: "triage", label: "Triage", emoji: "✅" },
   { key: "focus", label: "Focus", emoji: "⏱️" },
   { key: "projects", label: "Projects", emoji: "💼" },
