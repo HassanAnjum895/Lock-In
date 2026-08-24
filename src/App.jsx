@@ -14,11 +14,11 @@ function CloudStatus() {
   const { sync } = useApp();
   const label = {
     offline: "saved locally",
-    idle: "saved locally",
+    "signed-out": "saved locally — sign in to sync",
     loading: "connecting to cloud…",
     saving: "saving to cloud…",
-    saved: "saved locally + cloud ☁️",
-    error: "cloud backup offline",
+    saved: "synced across devices ☁️",
+    error: "sync offline — will retry",
   }[sync.status] || "saved locally";
 
   return (

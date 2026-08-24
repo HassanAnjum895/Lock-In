@@ -108,26 +108,6 @@ const migrateLegacySchedule = (legacy) => {
   return next;
 };
 
-/** True when no data has ever been entered — decides whether a cloud backup should win over local state. */
-const isDefaultDay = (blocks) =>
-  Array.isArray(blocks) &&
-  blocks.length === 8 &&
-  blocks.every(
-    (b, i) =>
-      !b.label && !b.free && b.start === (8 + i) * 60 && b.end === (9 + i) * 60
-  );
-
-const isPristineState = (s) =>
-  s.themeSentence.trim() === "" &&
-  !s.crunchWeek &&
-  s.tasks.length === 0 &&
-  s.savings === 0 &&
-  s.techProjects.length === 0 &&
-  s.dueItems.length === 0 &&
-  s.timer.secondsLeft === PRESETS.hp.minutes * 60 &&
-  s.timer.total === PRESETS.hp.minutes * 60 &&
-  DAYS.every((d) => isDefaultDay(s.schedule[d]));
-
 const AppContext = createContext(null);
 
 export function AppProvider({ children }) {
@@ -166,50 +146,27 @@ export function AppProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- Cloud backup / sync ----------------------------------------------
+  // ---- Cloud sync (account-based, real-time) ----------------------------
   const sync = useCloudSync();
-  const pristineRef = useRef(null);
-  const hydratedFromRemoteRef = useRef(false);
-  const restoreRequestedRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
+  // Block pushes until the account's backup has been fetched for this session,
+  // so a sign-in (or reload while signed in) imports cloud data before any
+  // local state could overwrite it.
+  const pendingHydrateRef = useRef(false);
+  // JSON of the last remote backup we applied — lets us spot changes that came
+  // from another device while ignoring our own echoes.
+  const lastRemoteRef = useRef(null);
 
-  if (pristineRef.current === null) {
-    pristineRef.current = isPristineState({
-      themeSentence,
-      crunchWeek,
-      schedule,
-      tasks,
-      timer,
-      savings,
-      techProjects,
-      dueItems,
-    });
-  }
-
-  /** A restore was explicitly requested — apply the fetched backup even if this
-   * browser already has local data (the user asked to bring the key's data back). */
-  const restoreWithKey = useCallback(
-    async (key) => {
-      restoreRequestedRef.current = true;
-      try {
-        return await sync.restoreWithKey(key);
-      } catch (err) {
-        // Fetch failed — don't leave a stale flag that could hydrate later.
-        restoreRequestedRef.current = false;
-        throw err;
-      }
-    },
-    [sync.restoreWithKey]
-  );
-
-  // Once the initial cloud fetch resolves, hydrate local state from the backup
-  // when the browser has no data yet (pristine) or a restore was requested.
+  const prevAuthRef = useRef(sync.isAuthenticated);
   useEffect(() => {
-    if (!sync.initialized) return;
-    const shouldHydrate =
-      sync.remote && (pristineRef.current || restoreRequestedRef.current);
-    if (shouldHydrate) {
-      const d = sync.remote;
+    if (sync.isAuthenticated && !prevAuthRef.current) {
+      pendingHydrateRef.current = true;
+    }
+    prevAuthRef.current = sync.isAuthenticated;
+  }, [sync.isAuthenticated]);
+
+  const applyRemote = useCallback(
+    (d) => {
       if (typeof d.themeSentence === "string") setThemeSentence(d.themeSentence);
       if (typeof d.crunchWeek === "boolean") setCrunchWeek(d.crunchWeek);
       if (d.schedule && typeof d.schedule === "object") setSchedule(d.schedule);
@@ -218,25 +175,51 @@ export function AppProvider({ children }) {
       if (typeof d.savings === "number") setSavings(d.savings);
       if (Array.isArray(d.techProjects)) setTechProjects(d.techProjects);
       if (Array.isArray(d.dueItems)) setDueItems(d.dueItems);
-      pristineRef.current = false;
-      restoreRequestedRef.current = false;
-      hydratedFromRemoteRef.current = true;
-    } else if (restoreRequestedRef.current) {
-      // Restore resolved with no backup for that key — stop waiting on it.
-      restoreRequestedRef.current = false;
+    },
+    [
+      setThemeSentence,
+      setCrunchWeek,
+      setSchedule,
+      setTasks,
+      setTimer,
+      setSavings,
+      setTechProjects,
+      setDueItems,
+    ]
+  );
+
+  // Resolve sync once per session: import the account's backup when one
+  // exists, otherwise treat local state as the source of truth. Afterwards,
+  // apply any remote change that isn't our own echo — that's the live
+  // cross-device sync.
+  useEffect(() => {
+    if (!sync.isAuthenticated) {
+      setHydrated(true);
+      return;
+    }
+    if (sync.loading) return; // first fetch for this session still in flight
+    if (pendingHydrateRef.current) {
+      pendingHydrateRef.current = false;
+      if (sync.remote) {
+        lastRemoteRef.current = JSON.stringify(sync.remote);
+        applyRemote(sync.remote);
+      }
+    } else if (sync.remote) {
+      const remoteJson = JSON.stringify(sync.remote);
+      if (remoteJson !== lastRemoteRef.current) {
+        lastRemoteRef.current = remoteJson;
+        applyRemote(sync.remote);
+      }
     }
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sync.initialized, sync.remote]);
+  }, [sync.isAuthenticated, sync.loading, sync.remote]);
 
-  // Debounced push of the whole app state to the cloud whenever it changes.
+  // Debounced push of the whole app state to the account's cloud backup
+  // whenever it changes.
   useEffect(() => {
-    if (!hydrated || !sync.enabled) return;
-    if (hydratedFromRemoteRef.current) {
-      // This render still holds pre-hydration state — let the next change push.
-      hydratedFromRemoteRef.current = false;
-      return;
-    }
+    if (!hydrated || !sync.isAuthenticated) return;
+    if (pendingHydrateRef.current) return; // don't clobber before import
     const data = {
       themeSentence,
       crunchWeek,
@@ -247,15 +230,17 @@ export function AppProvider({ children }) {
       techProjects,
       dueItems,
     };
-    // Pin this push to the key it was scheduled under — if the user switches
-    // keys (restore) before it fires, the pending save must not land on the
-    // newly-restored backup.
-    const id = sync.syncId;
-    const t = setTimeout(() => sync.save(data, id), 600);
+    // Already in sync — includes our own echoes coming back from the cloud.
+    if (sync.remote && JSON.stringify(data) === JSON.stringify(sync.remote)) {
+      return;
+    }
+    const t = setTimeout(() => sync.save(data), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     hydrated,
+    sync.isAuthenticated,
+    sync.remote,
     themeSentence,
     crunchWeek,
     schedule,
@@ -491,8 +476,7 @@ export function AppProvider({ children }) {
       sync: {
         enabled: sync.enabled,
         status: sync.status,
-        syncId: sync.syncId,
-        restoreWithKey,
+        isAuthenticated: sync.isAuthenticated,
       },
     }),
     [
@@ -506,8 +490,7 @@ export function AppProvider({ children }) {
       dueItems,
       sync.enabled,
       sync.status,
-      sync.syncId,
-      restoreWithKey,
+      sync.isAuthenticated,
     ]
   );
 

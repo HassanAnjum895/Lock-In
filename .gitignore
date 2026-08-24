@@ -3,7 +3,7 @@ dist
 *.local
 .DS_Store
 npm-debug.log*
-convex/_generated/
+convex/_generated/ai/
 .vercel
 .agents/
 .claude/
