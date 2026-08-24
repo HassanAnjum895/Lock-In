@@ -36,7 +36,9 @@ export function CloudSync() {
     try {
       const data = await sync.restoreWithKey(keyInput);
       setRestoreMsg(
-        data ? "Restored — your data is back." : "No backup found for that key."
+        data
+          ? "Restored — your data is back."
+          : "No backup found for that key — make sure both devices use the same backend URL (VITE_CONVEX_URL)."
       );
       setKeyInput("");
     } catch {

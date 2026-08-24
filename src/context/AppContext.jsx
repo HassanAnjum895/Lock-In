@@ -178,6 +178,22 @@ export function AppProvider({ children }) {
     });
   }
 
+  /** A restore was explicitly requested — apply the fetched backup even if this
+   * browser already has local data (the user asked to bring the key's data back). */
+  const restoreWithKey = useCallback(
+    async (key) => {
+      restoreRequestedRef.current = true;
+      try {
+        return await sync.restoreWithKey(key);
+      } catch (err) {
+        // Fetch failed — don't leave a stale flag that could hydrate later.
+        restoreRequestedRef.current = false;
+        throw err;
+      }
+    },
+    [sync.restoreWithKey]
+  );
+
   // Once the initial cloud fetch resolves, hydrate local state from the backup
   // when the browser has no data yet (pristine) or a restore was requested.
   useEffect(() => {
@@ -197,6 +213,9 @@ export function AppProvider({ children }) {
       pristineRef.current = false;
       restoreRequestedRef.current = false;
       hydratedFromRemoteRef.current = true;
+    } else if (restoreRequestedRef.current) {
+      // Restore resolved with no backup for that key — stop waiting on it.
+      restoreRequestedRef.current = false;
     }
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,7 +239,11 @@ export function AppProvider({ children }) {
       techProjects,
       dueItems,
     };
-    const t = setTimeout(() => sync.save(data), 600);
+    // Pin this push to the key it was scheduled under — if the user switches
+    // keys (restore) before it fires, the pending save must not land on the
+    // newly-restored backup.
+    const id = sync.syncId;
+    const t = setTimeout(() => sync.save(data, id), 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -461,7 +484,7 @@ export function AppProvider({ children }) {
         enabled: sync.enabled,
         status: sync.status,
         syncId: sync.syncId,
-        restoreWithKey: sync.restoreWithKey,
+        restoreWithKey,
       },
     }),
     [
@@ -476,7 +499,7 @@ export function AppProvider({ children }) {
       sync.enabled,
       sync.status,
       sync.syncId,
-      sync.restoreWithKey,
+      restoreWithKey,
     ]
   );
 

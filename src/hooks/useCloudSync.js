@@ -89,13 +89,13 @@ export function useCloudSync() {
   }, []);
 
   const save = useCallback(
-    async (data) => {
-      if (!CONVEX_URL || !idRef.current) return;
+    async (data, id = idRef.current) => {
+      if (!CONVEX_URL || !id) return;
       setStatus("saving");
       try {
         await call("/api/mutation", {
           path: "backups:saveBackup",
-          args: { anonymousId: idRef.current, data },
+          args: { anonymousId: id, data },
           format: "json",
         });
         setStatus("saved");
