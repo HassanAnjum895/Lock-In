@@ -8,8 +8,8 @@ export default defineSchema({
   // that is logged in to the same account.
   user_backups: defineTable({
     // Optional to tolerate rows created by the old anonymous-key system —
-    // they're not indexed by userId and are simply ignored. New rows always
-    // carry the signed-in user's identity.subject.
+    // they're not indexed by userId and are simply ignored. New rows carry
+    // the signed-in user's stable id (same on every device/session).
     userId: v.optional(v.string()),
     // Legacy field from the old recovery-key backups; kept so existing rows
     // keep validating. Never written by the current code.
