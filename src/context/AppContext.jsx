@@ -167,13 +167,57 @@ export function AppProvider({ children }) {
     prevAuthRef.current = sync.isAuthenticated;
   }, [sync.isAuthenticated]);
 
+  // The timer's live countdown (secondsLeft) is device-local: it changes
+  // every second, so including it in the cloud snapshot would trigger a save
+  // every second (the status flicker) and let sync echoes reset the countdown
+  // (the "stuck" timer). Only the timer *configuration* syncs across devices.
+  const timerConfig = (t) => ({
+    preset: t?.preset ?? "hp",
+    customMinutes: t?.customMinutes ?? 55,
+    customSeconds: t?.customSeconds ?? 0,
+    total: t?.total ?? 55 * 60,
+  });
+
+  // Stable projection of app state, used for both saving and comparing with
+  // the cloud, so the same logical state is byte-identical everywhere.
+  const project = (d) => ({
+    themeSentence: typeof d.themeSentence === "string" ? d.themeSentence : "",
+    crunchWeek: !!d.crunchWeek,
+    schedule: d.schedule ?? null,
+    tasks: d.tasks ?? [],
+    timer: timerConfig(d.timer),
+    savings: typeof d.savings === "number" ? d.savings : 0,
+    techProjects: d.techProjects ?? [],
+    dueItems: d.dueItems ?? [],
+  });
+
   const applyRemote = useCallback(
     (d) => {
       if (typeof d.themeSentence === "string") setThemeSentence(d.themeSentence);
       if (typeof d.crunchWeek === "boolean") setCrunchWeek(d.crunchWeek);
       if (d.schedule && typeof d.schedule === "object") setSchedule(d.schedule);
       if (Array.isArray(d.tasks)) setTasks(d.tasks);
-      if (d.timer && typeof d.timer === "object") setTimer(d.timer);
+      if (d.timer && typeof d.timer === "object") {
+        setTimer((prev) => {
+          const incoming = {
+            preset: d.timer.preset ?? prev.preset ?? "hp",
+            customMinutes: d.timer.customMinutes ?? prev.customMinutes ?? 55,
+            customSeconds: d.timer.customSeconds ?? prev.customSeconds ?? 0,
+            total: d.timer.total ?? prev.total ?? 55 * 60,
+          };
+          // Same configuration we already have — leave the local countdown
+          // (and any running timer) untouched instead of resetting it.
+          if (
+            incoming.preset === prev.preset &&
+            incoming.customMinutes === prev.customMinutes &&
+            incoming.customSeconds === prev.customSeconds &&
+            incoming.total === prev.total
+          ) {
+            return prev;
+          }
+          return { ...incoming, secondsLeft: incoming.total };
+        });
+      }
       if (typeof d.savings === "number") setSavings(d.savings);
       if (Array.isArray(d.techProjects)) setTechProjects(d.techProjects);
       if (Array.isArray(d.dueItems)) setDueItems(d.dueItems);
@@ -202,12 +246,12 @@ export function AppProvider({ children }) {
     if (sync.loading) return; // first fetch for this session still in flight
     if (!initialSyncDone) {
       if (sync.remote) {
-        lastRemoteRef.current = JSON.stringify(sync.remote);
+        lastRemoteRef.current = JSON.stringify(project(sync.remote));
         applyRemote(sync.remote);
       }
       setInitialSyncDone(true);
     } else if (sync.remote) {
-      const remoteJson = JSON.stringify(sync.remote);
+      const remoteJson = JSON.stringify(project(sync.remote));
       if (remoteJson !== lastRemoteRef.current) {
         lastRemoteRef.current = remoteJson;
         applyRemote(sync.remote);
@@ -222,7 +266,7 @@ export function AppProvider({ children }) {
   // the account backup before importing it.
   useEffect(() => {
     if (!sync.isAuthenticated || !initialSyncDone) return;
-    const data = {
+    const snapshot = project({
       themeSentence,
       crunchWeek,
       schedule,
@@ -231,12 +275,21 @@ export function AppProvider({ children }) {
       savings,
       techProjects,
       dueItems,
-    };
+    });
     // Already in sync — includes our own echoes coming back from the cloud.
-    if (sync.remote && JSON.stringify(data) === JSON.stringify(sync.remote)) {
+    if (
+      sync.remote &&
+      JSON.stringify(snapshot) === JSON.stringify(project(sync.remote))
+    ) {
       return;
     }
-    const t = setTimeout(() => sync.save(data), 600);
+    const t = setTimeout(() => {
+      // Treat the snapshot as applied the moment we save, so the echo that
+      // comes back (identical) is ignored instead of clobbering any edits
+      // made while the save was in flight.
+      lastRemoteRef.current = JSON.stringify(snapshot);
+      sync.save(snapshot);
+    }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
