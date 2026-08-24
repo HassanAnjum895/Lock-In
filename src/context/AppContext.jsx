@@ -148,11 +148,12 @@ export function AppProvider({ children }) {
 
   // ---- Cloud sync (account-based, real-time) ----------------------------
   const sync = useCloudSync();
-  const [hydrated, setHydrated] = useState(false);
-  // Block pushes until the account's backup has been fetched for this session,
-  // so a sign-in (or reload while signed in) imports cloud data before any
-  // local state could overwrite it.
-  const pendingHydrateRef = useRef(false);
+  // False until the account's backup has been fetched for this session, so a
+  // sign-in (or reload while signed in) imports cloud data before any local
+  // state could overwrite it. It's state (not a ref) so the push effect
+  // re-runs the moment the import resolves — otherwise the first save after
+  // sign-in is skipped.
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
   // JSON of the last remote backup we applied — lets us spot changes that came
   // from another device while ignoring our own echoes.
   const lastRemoteRef = useRef(null);
@@ -160,7 +161,8 @@ export function AppProvider({ children }) {
   const prevAuthRef = useRef(sync.isAuthenticated);
   useEffect(() => {
     if (sync.isAuthenticated && !prevAuthRef.current) {
-      pendingHydrateRef.current = true;
+      // Fresh sign-in (or reload while signed in): import cloud data again.
+      setInitialSyncDone(false);
     }
     prevAuthRef.current = sync.isAuthenticated;
   }, [sync.isAuthenticated]);
@@ -194,16 +196,16 @@ export function AppProvider({ children }) {
   // cross-device sync.
   useEffect(() => {
     if (!sync.isAuthenticated) {
-      setHydrated(true);
+      setInitialSyncDone(true);
       return;
     }
     if (sync.loading) return; // first fetch for this session still in flight
-    if (pendingHydrateRef.current) {
-      pendingHydrateRef.current = false;
+    if (!initialSyncDone) {
       if (sync.remote) {
         lastRemoteRef.current = JSON.stringify(sync.remote);
         applyRemote(sync.remote);
       }
+      setInitialSyncDone(true);
     } else if (sync.remote) {
       const remoteJson = JSON.stringify(sync.remote);
       if (remoteJson !== lastRemoteRef.current) {
@@ -211,15 +213,15 @@ export function AppProvider({ children }) {
         applyRemote(sync.remote);
       }
     }
-    setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sync.isAuthenticated, sync.loading, sync.remote]);
+  }, [sync.isAuthenticated, sync.loading, sync.remote, initialSyncDone]);
 
   // Debounced push of the whole app state to the account's cloud backup
-  // whenever it changes.
+  // whenever it changes. Skipping is only allowed once the initial import
+  // above has resolved (initialSyncDone), so a fresh sign-in can't clobber
+  // the account backup before importing it.
   useEffect(() => {
-    if (!hydrated || !sync.isAuthenticated) return;
-    if (pendingHydrateRef.current) return; // don't clobber before import
+    if (!sync.isAuthenticated || !initialSyncDone) return;
     const data = {
       themeSentence,
       crunchWeek,
@@ -238,8 +240,8 @@ export function AppProvider({ children }) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    hydrated,
     sync.isAuthenticated,
+    initialSyncDone,
     sync.remote,
     themeSentence,
     crunchWeek,
